@@ -62,7 +62,8 @@
     </div>
 
     <script>
-        window.onload = function() {
+        // Đưa toàn bộ code vào hàm init để dễ khởi tạo lại khi cần
+        function initApp() {
             const canvas = document.getElementById('draw');
             const ctx = canvas.getContext('2d');
             
@@ -73,12 +74,14 @@
             let sensitivity = 12;
             let lineWidth = 4;
 
-            // Thiết lập kích thước canvas
-            const rect = canvas.parentElement.getBoundingClientRect();
-            canvas.width = rect.width;
-            canvas.height = rect.height;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
+            function setupCanvas() {
+                const rect = canvas.parentElement.getBoundingClientRect();
+                canvas.width = rect.width;
+                canvas.height = rect.height;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+            }
+            setupCanvas();
 
             function getPos(e) {
                 const rect = canvas.getBoundingClientRect();
@@ -93,9 +96,14 @@
                 return { x: clientX - rect.left, y: clientY - rect.top };
             }
 
-            // Sự kiện cho cảm ứng
+            // Reset trạng thái nếu có sự cố gián đoạn
+            function resetState() {
+                isDrawing = false;
+                points = [];
+            }
+
             canvas.addEventListener('touchstart', function(e) {
-                e.preventDefault(); // Chặn cuộn trang
+                e.preventDefault();
                 isDrawing = true;
                 points = [getPos(e)];
             }, { passive: false });
@@ -106,7 +114,7 @@
                 const pos = getPos(e);
                 points.push(pos);
                 
-                // Vẽ đè lên một lớp mờ để test (nếu bạn muốn vẽ tạm)
+                // Vẽ tạm
                 ctx.strokeStyle = 'rgba(33, 150, 243, 0.5)';
                 ctx.lineWidth = lineWidth;
                 ctx.beginPath();
@@ -121,16 +129,20 @@
                 isDrawing = false;
                 processDraw();
             }, { passive: false });
+            
+            // Chống kẹt khi đang vẽ mà bị hệ thống cắt ngang
+            canvas.addEventListener('touchcancel', function(e) {
+                resetState();
+            }, { passive: false });
 
-            // Sự kiện cho chuột (máy tính)
+            // Sự kiện chuột
             canvas.addEventListener('mousedown', function(e) {
                 isDrawing = true;
                 points = [getPos(e)];
             });
             canvas.addEventListener('mousemove', function(e) {
                 if (!isDrawing) return;
-                const pos = getPos(e);
-                points.push(pos);
+                points.push(getPos(e));
             });
             canvas.addEventListener('mouseup', function(e) {
                 if (!isDrawing) return;
@@ -147,14 +159,13 @@
                 
                 let drawStart = start;
                 let drawEnd = end;
+                let doStraight = false;
 
                 if (straightenOn) {
                     const dx = Math.abs(end.x - start.x);
                     const dy = Math.abs(end.y - start.y);
                     const angle = Math.atan2(dy, dx) * 180 / Math.PI;
                     
-                    let doStraight = false;
-
                     if (mode === 'h' && dx > dy) doStraight = true;
                     else if (mode === 'v' && dy > dx) doStraight = true;
                     else if (mode === 'auto') {
@@ -175,16 +186,14 @@
                     }
                 }
 
-                // Vẽ nét cuối
                 ctx.beginPath();
                 ctx.strokeStyle = '#4caf50';
                 ctx.lineWidth = lineWidth;
                 ctx.moveTo(drawStart.x, drawStart.y);
                 
-                if (straightenOn && (drawStart.x !== start.x || drawStart.y !== start.y)) {
+                if (doStraight) {
                     ctx.lineTo(drawEnd.x, drawEnd.y);
                 } else {
-                    // Vẽ mượt
                     ctx.moveTo(points[0].x, points[0].y);
                     for (let i = 1; i < points.length - 1; i++) {
                         const xc = (points[i].x + points[i + 1].x) / 2;
@@ -197,36 +206,50 @@
                 points = [];
             }
 
-            // Xử lý nút bấm
+            // Gắn sự kiện nút bấm
             const toggleBtn = document.getElementById('toggleStraight');
-            toggleBtn.addEventListener('click', function() {
+            toggleBtn.onclick = function() {
                 straightenOn = !straightenOn;
                 this.classList.toggle('on', straightenOn);
                 this.textContent = straightenOn ? 'Giữ thẳng: BẬT' : 'Giữ thẳng: TẮT';
-            });
+            };
 
             document.querySelectorAll('[data-mode]').forEach(btn => {
-                btn.addEventListener('click', function() {
+                btn.onclick = function() {
                     document.querySelectorAll('[data-mode]').forEach(b => b.classList.remove('active'));
                     this.classList.add('active');
                     mode = this.dataset.mode;
-                });
+                };
             });
 
-            document.getElementById('sensitivity').addEventListener('input', function() {
+            document.getElementById('sensitivity').oninput = function() {
                 sensitivity = parseFloat(this.value);
                 document.getElementById('sensVal').textContent = this.value + '°';
-            });
+            };
 
-            document.getElementById('lineWidth').addEventListener('input', function() {
+            document.getElementById('lineWidth').oninput = function() {
                 lineWidth = parseInt(this.value);
                 document.getElementById('widthVal').textContent = this.value;
-            });
+            };
 
-            document.getElementById('clearBtn').addEventListener('click', function() {
+            document.getElementById('clearBtn').onclick = function() {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
+            };
+
+            // LẮNG NGHE SỰ KIỆN QUAY LẠI APP (Chống đơ khi thoát ra vào lại)
+            document.addEventListener('visibilitychange', function() {
+                if (document.visibilityState === 'visible') {
+                    resetState(); // Đánh thức, hủy trạng thái vẽ dở
+                    setupCanvas(); // Căn chỉnh lại canvas cho chuẩn
+                }
             });
-        };
+            
+            // Đánh thức khi màn hình xoay
+            window.addEventListener('resize', setupCanvas);
+        }
+
+        // Khởi chạy khi trang đã tải xong hoàn toàn
+        window.onload = initApp;
     </script>
 </body>
 </html>
