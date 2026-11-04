@@ -47,12 +47,6 @@
         </div>
 
         <div class="row">
-            <span>Độ mượt</span>
-            <input type="range" id="smoothness" min="0" max="100" value="55">
-            <span class="val" id="smoothVal">55</span>
-        </div>
-        
-        <div class="row">
             <span>Độ nhạy khóa</span>
             <input type="range" id="sensitivity" min="0" max="45" value="12">
             <span class="val" id="sensVal">12°</span>
@@ -68,158 +62,171 @@
     </div>
 
     <script>
-        // Đợi HTML tải xong mới chạy script
-        document.addEventListener('DOMContentLoaded', () => {
+        window.onload = function() {
             const canvas = document.getElementById('draw');
-            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            const ctx = canvas.getContext('2d');
             
-            let config = {
-                straighten: true,
-                mode: 'auto',
-                smoothness: 55,
-                sensitivity: 12,
-                lineWidth: 4
-            };
-
             let isDrawing = false;
             let points = [];
-            
-            function resizeCanvas() {
-                const rect = canvas.parentElement.getBoundingClientRect();
-                const dpr = window.devicePixelRatio || 1;
-                canvas.width = rect.width * dpr;
-                canvas.height = rect.height * dpr;
-                ctx.scale(dpr, dpr);
-                ctx.lineCap = 'round';
-                ctx.lineJoin = 'round';
-                
-                const saved = localStorage.getItem('drawing');
-                if (saved) {
-                    const img = new Image();
-                    img.onload = () => ctx.drawImage(img, 0, 0, rect.width, rect.height);
-                    img.src = saved;
-                }
-            }
+            let straightenOn = true;
+            let mode = 'auto';
+            let sensitivity = 12;
+            let lineWidth = 4;
 
-            window.addEventListener('resize', resizeCanvas);
-            resizeCanvas();
+            // Thiết lập kích thước canvas
+            const rect = canvas.parentElement.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
 
             function getPos(e) {
                 const rect = canvas.getBoundingClientRect();
-                return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+                let clientX, clientY;
+                if (e.touches && e.touches.length > 0) {
+                    clientX = e.touches[0].clientX;
+                    clientY = e.touches[0].clientY;
+                } else {
+                    clientX = e.clientX;
+                    clientY = e.clientY;
+                }
+                return { x: clientX - rect.left, y: clientY - rect.top };
             }
 
-            function startDraw(e) {
+            // Sự kiện cho cảm ứng
+            canvas.addEventListener('touchstart', function(e) {
+                e.preventDefault(); // Chặn cuộn trang
                 isDrawing = true;
                 points = [getPos(e)];
-            }
+            }, { passive: false });
 
-            function draw(e) {
+            canvas.addEventListener('touchmove', function(e) {
+                e.preventDefault();
                 if (!isDrawing) return;
                 const pos = getPos(e);
                 points.push(pos);
                 
-                // Vẽ nét tạm
+                // Vẽ đè lên một lớp mờ để test (nếu bạn muốn vẽ tạm)
+                ctx.strokeStyle = 'rgba(33, 150, 243, 0.5)';
+                ctx.lineWidth = lineWidth;
                 ctx.beginPath();
-                ctx.strokeStyle = '#2196f3'; 
-                ctx.lineWidth = config.lineWidth;
-                ctx.moveTo(points[0].x, points[0].y);
-                for (let i = 1; i < points.length; i++) {
-                    ctx.lineTo(points[i].x, points[i].y);
-                }
+                ctx.moveTo(points[points.length - 2].x, points[points.length - 2].y);
+                ctx.lineTo(pos.x, pos.y);
                 ctx.stroke();
-            }
+            }, { passive: false });
 
-            function endDraw(e) {
+            canvas.addEventListener('touchend', function(e) {
+                e.preventDefault();
                 if (!isDrawing) return;
                 isDrawing = false;
+                processDraw();
+            }, { passive: false });
+
+            // Sự kiện cho chuột (máy tính)
+            canvas.addEventListener('mousedown', function(e) {
+                isDrawing = true;
+                points = [getPos(e)];
+            });
+            canvas.addEventListener('mousemove', function(e) {
+                if (!isDrawing) return;
+                const pos = getPos(e);
+                points.push(pos);
+            });
+            canvas.addEventListener('mouseup', function(e) {
+                if (!isDrawing) return;
+                isDrawing = false;
+                processDraw();
+            });
+
+            function processDraw() {
+                if (points.length < 2) return;
                 
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
-                let finalPath = [...points];
+                let start = points[0];
+                let end = points[points.length - 1];
                 
-                if (config.straighten && finalPath.length > 2) {
-                    const start = finalPath[0];
-                    const end = finalPath[finalPath.length - 1];
+                let drawStart = start;
+                let drawEnd = end;
+
+                if (straightenOn) {
                     const dx = Math.abs(end.x - start.x);
                     const dy = Math.abs(end.y - start.y);
                     const angle = Math.atan2(dy, dx) * 180 / Math.PI;
                     
                     let doStraight = false;
-                    
-                    if (config.mode === 'h' && dx > dy) doStraight = true;
-                    else if (config.mode === 'v' && dy > dx) doStraight = true;
-                    else if (config.mode === 'auto') {
-                        if (dx > dy && angle < config.sensitivity) doStraight = true;
-                        if (dy > dx && (90 - angle) < config.sensitivity) doStraight = true;
+
+                    if (mode === 'h' && dx > dy) doStraight = true;
+                    else if (mode === 'v' && dy > dx) doStraight = true;
+                    else if (mode === 'auto') {
+                        if (dx > dy && angle < sensitivity) doStraight = true;
+                        if (dy > dx && (90 - angle) < sensitivity) doStraight = true;
                     }
 
                     if (doStraight) {
-                        finalPath = [start, end];
+                        if (mode === 'h' || (mode === 'auto' && dx > dy)) {
+                            let avgY = start.y + (end.y - start.y) / 2;
+                            drawEnd = { x: end.x, y: avgY };
+                            drawStart = { x: start.x, y: avgY };
+                        } else {
+                            let avgX = start.x + (end.x - start.x) / 2;
+                            drawEnd = { x: avgX, y: end.y };
+                            drawStart = { x: avgX, y: start.y };
+                        }
                     }
                 }
 
+                // Vẽ nét cuối
                 ctx.beginPath();
                 ctx.strokeStyle = '#4caf50';
-                ctx.lineWidth = config.lineWidth;
-                ctx.moveTo(finalPath[0].x, finalPath[0].y);
+                ctx.lineWidth = lineWidth;
+                ctx.moveTo(drawStart.x, drawStart.y);
                 
-                for (let i = 1; i < finalPath.length - 1; i++) {
-                    const xc = (finalPath[i].x + finalPath[i + 1].x) / 2;
-                    const yc = (finalPath[i].y + finalPath[i + 1].y) / 2;
-                    ctx.quadraticCurveTo(finalPath[i].x, finalPath[i].y, xc, yc);
-                }
-                if (finalPath.length > 1) {
-                    ctx.lineTo(finalPath[finalPath.length - 1].x, finalPath[finalPath.length - 1].y);
+                if (straightenOn && (drawStart.x !== start.x || drawStart.y !== start.y)) {
+                    ctx.lineTo(drawEnd.x, drawEnd.y);
+                } else {
+                    // Vẽ mượt
+                    ctx.moveTo(points[0].x, points[0].y);
+                    for (let i = 1; i < points.length - 1; i++) {
+                        const xc = (points[i].x + points[i + 1].x) / 2;
+                        const yc = (points[i].y + points[i + 1].y) / 2;
+                        ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+                    }
+                    ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
                 }
                 ctx.stroke();
-
-                localStorage.setItem('drawing', canvas.toDataURL());
                 points = [];
             }
 
-            // Gắn sự kiện vẽ
-            canvas.addEventListener('pointerdown', startDraw);
-            canvas.addEventListener('pointermove', draw);
-            canvas.addEventListener('pointerup', endDraw);
-            canvas.addEventListener('pointercancel', endDraw);
-
-            // Sự kiện nút bấm
-            document.getElementById('toggleStraight').addEventListener('click', function() {
-                config.straighten = !config.straighten;
-                this.classList.toggle('on', config.straighten);
-                this.textContent = `Giữ thẳng: ${config.straighten ? 'BẬT' : 'TẮT'}`;
+            // Xử lý nút bấm
+            const toggleBtn = document.getElementById('toggleStraight');
+            toggleBtn.addEventListener('click', function() {
+                straightenOn = !straightenOn;
+                this.classList.toggle('on', straightenOn);
+                this.textContent = straightenOn ? 'Giữ thẳng: BẬT' : 'Giữ thẳng: TẮT';
             });
 
             document.querySelectorAll('[data-mode]').forEach(btn => {
                 btn.addEventListener('click', function() {
                     document.querySelectorAll('[data-mode]').forEach(b => b.classList.remove('active'));
                     this.classList.add('active');
-                    config.mode = this.dataset.mode;
+                    mode = this.dataset.mode;
                 });
             });
 
-            document.getElementById('smoothness').addEventListener('input', function() {
-                config.smoothness = this.value;
-                document.getElementById('smoothVal').textContent = this.value;
-            });
-
             document.getElementById('sensitivity').addEventListener('input', function() {
-                config.sensitivity = this.value;
+                sensitivity = parseFloat(this.value);
                 document.getElementById('sensVal').textContent = this.value + '°';
             });
 
             document.getElementById('lineWidth').addEventListener('input', function() {
-                config.lineWidth = this.value;
+                lineWidth = parseInt(this.value);
                 document.getElementById('widthVal').textContent = this.value;
             });
 
-            document.getElementById('clearBtn').addEventListener('click', () => {
-                if(confirm('Bạn có chắc muốn xóa hết?')) {
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    localStorage.removeItem('drawing');
-                }
+            document.getElementById('clearBtn').addEventListener('click', function() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
             });
-        });
+        };
     </script>
 </body>
 </html>
